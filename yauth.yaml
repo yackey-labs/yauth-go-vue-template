@@ -32,7 +32,9 @@ server:
     # single origin. In prod, populate this with your SPA's origin.
     allowed_origins: []
     allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-    allowed_headers: ["Content-Type"]
+    # traceparent/tracestate let browser-side OTel propagate request
+    # context across the SPA → API boundary when cross-origin.
+    allowed_headers: ["Content-Type", "traceparent", "tracestate"]
     allow_credentials: true
 
 session:
@@ -41,6 +43,18 @@ session:
   cookie_path: /
   cookie_secure: false
   cookie_same_site: lax
+
+telemetry:
+  # Enabled by default so yauth-go's per-handler spans flow out of the
+  # box. yauth.NewFromConfig isn't used by this template (we wire
+  # plugins manually) — instead, internal/app reads this section and
+  # calls telemetry.Init() before constructing yauth.
+  enabled: true
+  service_name: yauth-go-vue-template
+  # Leave blank — telemetry.Init reads OTEL_EXPORTER_OTLP_ENDPOINT
+  # from the environment so the same yauth.yaml ships dev/prod and the
+  # endpoint swaps via env (.env in dev, secret manager in prod).
+  otlp_endpoint: ""
 
 plugins:
   email_password:

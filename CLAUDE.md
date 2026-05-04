@@ -152,6 +152,43 @@ The contract:
 retry logic, telemetry there. The two-arg `apiFetch(url, init)`
 signature matches what orval emits for `client: 'fetch'`.
 
+## Observability (OpenTelemetry)
+
+Telemetry is on by default. [`internal/telemetry`](server/internal/telemetry)
+initializes the global `TracerProvider` + W3C TraceContext propagator
+once in `app.New`. The HTTP layer wraps the mux in `otelhttp.NewHandler`
+so every request — yauth plugin handlers and our custom routes —
+emits a server span and propagates context. yauth-go's plugins call
+`otel.Tracer(...)` on the global provider, so they automatically pick
+up our setup; we deliberately do NOT call yauth's `WithTelemetry` /
+`WithTelemetryShutdown` on the builder (would only add a duplicate
+yauth-only middleware).
+
+**Why a custom telemetry pkg instead of `yauth.telemetry.Init`?** Two
+real problems with that helper today:
+
+1. It merges `resource.Default()` (semconv 1.40+ in current SDKs) with
+   an explicit semconv 1.26.0 attribute — fails fast with
+   `conflicting Schema URL`.
+2. It exports via `otlptracegrpc`, but the
+   `otel-{local,}.yackey.cloud` collectors only accept OTLP/HTTP at
+   `/v1/traces`.
+
+Our local `internal/telemetry`:
+- Builds a schemaless resource (one attribute: `service.name`).
+- Uses `otlptracehttp` with `WithEndpointURL(cfg.Endpoint)` — the
+  exporter appends `/v1/traces` automatically.
+- Falls back to the SDK's default endpoint behavior when both
+  `yauth.yaml.telemetry.otlp_endpoint` and
+  `OTEL_EXPORTER_OTLP_ENDPOINT` are blank.
+
+**Endpoint convention** (matches ghostline's Rust setup):
+- dev → `https://otel-local.yackey.cloud`
+- prod → `https://otel.yackey.cloud`
+
+Set via `.env` in dev, secret manager in prod. CORS already allows
+`traceparent`/`tracestate` headers in `yauth.yaml`.
+
 ## yauth-go API gotchas
 
 Things that bit me writing this template — keep in mind:

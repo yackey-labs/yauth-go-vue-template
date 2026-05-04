@@ -159,6 +159,36 @@ server:
 `allow_credentials: true` is essential — without it the browser refuses
 to include cookies on cross-origin requests, breaking session auth.
 
+## Observability
+
+Telemetry is on by default. [`internal/telemetry`](server/internal/telemetry)
+sets the global OTel `TracerProvider` + W3C `traceparent` propagator,
+and [`internal/api/router.go`](server/internal/api/router.go) wraps the
+whole mux in `otelhttp.NewHandler` — every request emits a server
+span (`GET /api/me`, `POST /api/auth/login`, …) and incoming
+`traceparent` headers are extracted into the request context. yauth's
+plugin handlers use the same global provider, so login/register/etc.
+also span automatically.
+
+Wire-level details:
+- **Transport** — OTLP/HTTP. The collectors at
+  `otel-local.yackey.cloud` and `otel.yackey.cloud` accept HTTP at
+  `/v1/traces` (the SDK appends the path; you set the base).
+- **Endpoint** — `OTEL_EXPORTER_OTLP_ENDPOINT` env var. Defaults in
+  `.env.example`:
+  - dev: `https://otel-local.yackey.cloud`
+  - prod: set `https://otel.yackey.cloud` via your secret/env manager
+- **Service name** — `OTEL_SERVICE_NAME` (default
+  `yauth-go-vue-template` from `yauth.yaml`).
+- **Disable** — set `telemetry.enabled: false` in `yauth.yaml` or just
+  unset `OTEL_EXPORTER_OTLP_ENDPOINT` (the SDK still installs a no-op
+  exporter and never sees the network).
+
+CORS already allows `traceparent` and `tracestate`, so when the SPA
+ever runs on a different origin from the API, browser-side OTel can
+propagate trace context across the boundary. Frontend OTel SDK isn't
+wired yet — that's a follow-up if you want browser → backend traces.
+
 ## Deployment notes
 
 - Configure `DATABASE_URL` (referenced by `yauth.yaml` via

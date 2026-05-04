@@ -2,6 +2,10 @@
 // build the YAuth instance manually rather than calling yauth.NewFromConfig
 // so we can attach extra plugins (status, admin) on top of email-password
 // — NewFromConfig only wires email-password and telemetry today.
+//
+// Telemetry is initialized one layer up in internal/telemetry; yauth-go's
+// plugin handlers use otel.Tracer(...) on the global TracerProvider, so
+// no builder-side WithTelemetry call is needed here.
 package auth
 
 import (
@@ -17,13 +21,14 @@ import (
 	"github.com/yackey-labs/yauth-go-vue-template/server/internal/config"
 )
 
-// New builds a configured *yauth.YAuth from the application config and an
-// open GORM connection. Add WithPlugin(...) calls below to opt into more
-// auth methods (bearer JWT, API keys, MFA, ...).
+// New builds a configured *yauth.YAuth from the application config and
+// an open GORM connection.
+//
+// Add WithPlugin(...) calls below to opt into more auth methods (bearer
+// JWT, API keys, MFA, ...).
 func New(db *gorm.DB, cfg config.Config) (*yauth.YAuth, error) {
 	yc := cfg.YAuth
 	ycfg := yauthRuntime(yc)
-
 	epCfg := emailPassword(yc.Plugins.EmailPassword)
 
 	return yauth.New(gormrepo.New(db), ycfg).

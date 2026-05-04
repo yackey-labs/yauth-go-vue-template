@@ -22,7 +22,7 @@ import (
 // false and run `server migrate` (or `task migrate`) as a separate step
 // before rolling out replicas.
 func Serve(ctx context.Context, cfgPath string) error {
-	a, err := New(cfgPath)
+	a, err := New(ctx, cfgPath)
 	if err != nil {
 		return err
 	}
@@ -70,6 +70,9 @@ func Serve(ctx context.Context, cfgPath string) error {
 	}
 	if err := a.YAuth.Shutdown(shutdownCtx); err != nil {
 		slog.Error("yauth shutdown", "err", err)
+	}
+	if err := a.TelShutdown(shutdownCtx); err != nil {
+		slog.Error("telemetry shutdown", "err", err)
 	}
 	return nil
 }

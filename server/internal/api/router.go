@@ -3,6 +3,8 @@ package api
 import (
 	"net/http"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
 	yauth "github.com/yackey-labs/yauth-go"
 
 	appmw "github.com/yackey-labs/yauth-go-vue-template/server/internal/api/middleware"
@@ -16,6 +18,10 @@ import (
 //	/api/<route>   App routes — typed via Huma, wrapped by RequireAuth
 //	/openapi.json  Application OpenAPI 3.1 spec (drives the generated TS client)
 //	/docs          Stoplight Elements UI for /openapi.json
+//
+// The whole tree is wrapped in otelhttp so every request — yauth's
+// plugin handlers AND our custom routes — emits a server span and
+// extracts incoming W3C traceparent headers into the request context.
 //
 // Adding a new app route: declare it in handlers/, then add a
 // `mux.Handle(...)` line below for whichever security wrapping it needs.
@@ -39,5 +45,12 @@ func NewRouter(ya *yauth.YAuth) http.Handler {
 	mux.Handle("/openapi.json", humaMux)
 	mux.Handle("/docs", humaMux)
 
-	return appmw.RequestLogger(mux)
+	return otelhttp.NewHandler(
+		appmw.RequestLogger(mux),
+		"yauth-go-vue-template",
+		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+			// Ghostline-style span names: "GET /api/me".
+			return r.Method + " " + r.URL.Path
+		}),
+	)
 }
