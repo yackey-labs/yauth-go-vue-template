@@ -1,0 +1,139 @@
+version: '3'
+
+# Loads .env from the repo root so tasks see DATABASE_URL etc.
+dotenv: ['.env']
+
+# Run from anywhere — every task uses absolute dirs anchored at the
+# Taskfile, so `./task <name>` works no matter your shell's cwd.
+vars:
+  ROOT: '{{.TASKFILE_DIR}}'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  setup:
+    desc: First-time setup — copy .env, install web deps, fetch Go modules
+    cmds:
+      - cmd: 'test -f {{.ROOT}}/.env || cp {{.ROOT}}/.env.example {{.ROOT}}/.env'
+      - cmd: pnpm install
+        dir: '{{.ROOT}}/web'
+      - cmd: go mod download
+        dir: '{{.ROOT}}/server'
+
+  db-up:
+    desc: Start the Postgres container in the background
+    dir: '{{.ROOT}}'
+    cmds:
+      - docker compose up -d postgres
+      - |
+        echo "Waiting for Postgres to be healthy..."
+        until docker compose ps postgres --format json 2>/dev/null | grep -q '"Health":"healthy"'; do
+          sleep 1
+        done
+        echo "Postgres is ready at $DATABASE_URL"
+
+  db-down:
+    desc: Stop the Postgres container
+    dir: '{{.ROOT}}'
+    cmd: docker compose down
+
+  db-reset:
+    desc: Drop and recreate the Postgres volume, then start it again
+    dir: '{{.ROOT}}'
+    cmds:
+      - docker compose down -v
+      - task: db-up
+
+  migrate:
+    desc: Run schema migrations against DATABASE_URL and exit (idempotent)
+    dir: '{{.ROOT}}/server'
+    cmd: go run . migrate
+
+  server:
+    desc: Run the Go backend on :3000 (foreground)
+    dir: '{{.ROOT}}/server'
+    cmd: go run .
+
+  web:
+    desc: Run the Vite dev server on :5173 (foreground; proxies /api → :3000)
+    dir: '{{.ROOT}}/web'
+    cmd: pnpm dev
+
+  dev:
+    desc: |
+      Bring up Postgres, then run backend + frontend together. Open
+      http://localhost:5173 — Vite serves the SPA there and proxies
+      /api → http://localhost:3000 so you only ever hit one URL in
+      your browser.
+    deps: [db-up]
+    cmds:
+      - |
+        trap 'kill 0' INT TERM
+        (cd '{{.ROOT}}/server' && go run .) &
+        (cd '{{.ROOT}}/web' && pnpm dev) &
+        wait
+
+  build:
+    desc: Build the server binary and the production web bundle
+    deps: [build-server, build-web]
+
+  build-server:
+    desc: Compile the server binary into server/server
+    dir: '{{.ROOT}}/server'
+    cmd: go build -o server .
+
+  build-web:
+    desc: Build the production web bundle into web/dist
+    dir: '{{.ROOT}}/web'
+    cmd: pnpm build
+
+  lint:
+    desc: Lint everything (server + web)
+    deps: [lint-server, lint-web]
+
+  lint-server:
+    dir: '{{.ROOT}}/server'
+    cmds:
+      - go vet ./...
+      - |
+        out=$(gofmt -l .)
+        if [ -n "$out" ]; then
+          echo "gofmt found unformatted files:"
+          echo "$out"
+          exit 1
+        fi
+
+  lint-web:
+    dir: '{{.ROOT}}/web'
+    cmd: pnpm lint
+
+  typecheck:
+    desc: Type-check the web app
+    dir: '{{.ROOT}}/web'
+    cmd: pnpm typecheck
+
+  test:
+    desc: Run all tests
+    deps: [test-server]
+
+  test-server:
+    dir: '{{.ROOT}}/server'
+    cmd: go test ./...
+
+  ci:
+    desc: Run the same checks CI does (lint + typecheck + build + test)
+    cmds:
+      - task: lint
+      - task: typecheck
+      - task: build
+      - task: test
+
+  clean:
+    desc: Remove build artifacts and Vite caches
+    cmds:
+      - cmd: rm -f {{.ROOT}}/server/server
+      - cmd: rm -rf {{.ROOT}}/web/dist {{.ROOT}}/web/node_modules/.vite

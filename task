@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Convenience wrapper for `task` (https://taskfile.dev) that uses the
+# `go tool` install path declared in server/go.mod, so contributors don't
+# need a global `task` binary on PATH. Run `./task <name>` from anywhere
+# under the repo.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+exec go -C "$ROOT/server" tool task -d "$ROOT" "$@"

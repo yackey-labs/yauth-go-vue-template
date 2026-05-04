@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -19,25 +20,81 @@ import (
 	"github.com/yackey-labs/yauth-go/plugins/emailpassword"
 	"github.com/yackey-labs/yauth-go/plugins/status"
 	"github.com/yackey-labs/yauth-go/repo/gormrepo"
+	"gorm.io/gorm"
 )
 
+const usage = `usage: server [command]
+
+Commands:
+  serve     Run the HTTP server (default). Auto-runs migrations on
+            startup unless AUTO_MIGRATE=false is set in the env.
+  migrate   Run schema migrations against DATABASE_URL and exit.
+            Idempotent — safe to run repeatedly.
+  help      Show this message.
+`
+
 func main() {
-	if err := run(); err != nil {
-		log.Fatal(err)
+	cmd := "serve"
+	if len(os.Args) > 1 {
+		cmd = os.Args[1]
+	}
+
+	switch cmd {
+	case "serve":
+		if err := serve(); err != nil {
+			log.Fatal(err)
+		}
+	case "migrate":
+		if err := migrate(); err != nil {
+			log.Fatal(err)
+		}
+	case "help", "-h", "--help":
+		fmt.Print(usage)
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n%s", cmd, usage)
+		os.Exit(2)
 	}
 }
 
-func run() error {
+func openDB() (*gorm.DB, error) {
 	dsn := envOr("DATABASE_URL", "postgres://yauth:yauth@127.0.0.1:5432/yauth_app?sslmode=disable")
-	port := envOr("PORT", "3000")
+	return gormrepo.OpenPostgres(dsn)
+}
 
-	db, err := gormrepo.OpenPostgres(dsn)
+// migrate runs schema migrations once and exits. Use this in CI/CD pipelines
+// before rolling out a new version of the server, especially when running
+// multiple replicas (auto-migrate at startup races across replicas).
+func migrate() error {
+	db, err := openDB()
 	if err != nil {
 		return err
 	}
+	log.Println("running migrations...")
 	if err := gormrepo.Migrate(context.Background(), db); err != nil {
 		return err
 	}
+	log.Println("migrations complete.")
+	return nil
+}
+
+func serve() error {
+	db, err := openDB()
+	if err != nil {
+		return err
+	}
+
+	// Auto-migrate at startup is convenient for local dev (`make dev` Just
+	// Works on a fresh database), but in production you usually want migrate
+	// to run as a separate step before app rollout. Set AUTO_MIGRATE=false to
+	// disable; pair with `server migrate` (or `make migrate`) in your deploy
+	// pipeline.
+	if os.Getenv("AUTO_MIGRATE") != "false" {
+		if err := gormrepo.Migrate(context.Background(), db); err != nil {
+			return err
+		}
+	}
+
+	port := envOr("PORT", "3000")
 
 	cfg := yauth.NewDefaultConfig()
 	cfg.AutoAdminFirstUser = true
