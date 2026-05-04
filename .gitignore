@@ -13,6 +13,9 @@
 server/server
 server/coverage.out
 
+# Built tool binaries (./yauth wrapper caches here)
+.bin/
+
 # Node / pnpm
 web/node_modules/
 web/dist/
