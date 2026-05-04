@@ -184,10 +184,21 @@ Wire-level details:
   unset `OTEL_EXPORTER_OTLP_ENDPOINT` (the SDK still installs a no-op
   exporter and never sees the network).
 
-CORS already allows `traceparent` and `tracestate`, so when the SPA
-ever runs on a different origin from the API, browser-side OTel can
-propagate trace context across the boundary. Frontend OTel SDK isn't
-wired yet — that's a follow-up if you want browser → backend traces.
+**Frontend OTel.** The SPA also has a `WebTracerProvider` configured
+via [`web/src/otel.ts`](web/src/otel.ts), with `FetchInstrumentation`
+on so every typed-client call automatically becomes a client span and
+carries `traceparent` to the backend. The backend's otelhttp wrapper
+continues the trace under that parent — full browser → server →
+plugin visibility in the collector.
+
+To avoid browser CORS pain, the SPA POSTs spans to a same-origin
+`/v1/traces` path. In dev, Vite proxies `/v1/traces` to the cloud
+collector (configured by `VITE_OTEL_EXPORTER_OTLP_ENDPOINT` in
+`vite.config.ts`). In prod, your reverse proxy / CDN must do the
+same forwarding for the same path.
+
+CORS already allows `traceparent` and `tracestate`, so split-origin
+deployments propagate context cleanly too.
 
 ## Deployment notes
 

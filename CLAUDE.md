@@ -189,6 +189,22 @@ Our local `internal/telemetry`:
 Set via `.env` in dev, secret manager in prod. CORS already allows
 `traceparent`/`tracestate` headers in `yauth.yaml`.
 
+### Frontend OTel
+
+[`web/src/otel.ts`](web/src/otel.ts) installs `WebTracerProvider` +
+`FetchInstrumentation`. Imported FIRST in `main.ts` so every typed
+client call is auto-spanned and carries `traceparent`.
+
+**Don't post browser spans cross-origin.** The SPA always exports to
+the same-origin path `/v1/traces`. In dev, the Vite proxy forwards it
+to the configured collector (see `VITE_OTEL_EXPORTER_OTLP_ENDPOINT`
++ the `proxy` block in `vite.config.ts`). In prod, your SPA host's
+reverse proxy must do the same forwarding for `/v1/traces`. This
+skips the CORS dance with the collector entirely.
+
+Disable browser-side OTel by leaving `VITE_OTEL_EXPORTER_OTLP_ENDPOINT`
+unset — `web/src/otel.ts` becomes a no-op.
+
 ## yauth-go API gotchas
 
 Things that bit me writing this template — keep in mind:

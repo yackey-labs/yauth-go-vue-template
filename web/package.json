@@ -15,6 +15,14 @@
     "orval": "orval"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/context-zone": "^2.0.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.205.0",
+    "@opentelemetry/instrumentation": "^0.205.0",
+    "@opentelemetry/instrumentation-fetch": "^0.205.0",
+    "@opentelemetry/resources": "^2.0.0",
+    "@opentelemetry/sdk-trace-web": "^2.0.0",
+    "@opentelemetry/semantic-conventions": "^1.30.0",
     "@tailwindcss/vite": "^4.0.0",
     "@yackey-labs/yauth-client": "^0.12.2",
     "@yackey-labs/yauth-ui-vue": "^0.12.2",
