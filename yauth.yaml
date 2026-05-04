@@ -1,0 +1,52 @@
+# Application config. Loaded by yauth-go's `yauthcfg.Load` at startup
+# and used by both the running server and the standalone migrator
+# (`server migrate` / `task migrate`). YAUTH_* env vars override
+# matching keys at runtime — keep secrets out of this file and inject
+# them via env in production (e.g. ${DB_PASSWORD}).
+#
+# Production checklist:
+#   - flip database.auto_migrate to false (let `server migrate` run as
+#     a separate deploy step)
+#   - set session.cookie_secure: true
+#   - populate server.cors.allowed_origins if the SPA isn't served
+#     from the same origin as the API
+#   - move sensitive fields to env-var placeholders
+
+database:
+  driver: postgres
+  # `env:NAME` swaps in the DATABASE_URL env var at load time. Set the
+  # env var via `.env` (sourced by Taskfile/Make/Compose) or your
+  # platform's secret manager. yauthcfg requires the value to be set —
+  # there is no fallback.
+  dsn: env:DATABASE_URL
+  # Local dev convenience. Replicas race AutoMigrate, so flip to false
+  # before deploying behind a load balancer.
+  auto_migrate: true
+
+server:
+  addr: ":3000"
+  base_url: http://localhost:5173
+  auto_admin_first_user: true
+  cors:
+    # Empty in dev — Vite proxies /api → :3000, so the browser sees a
+    # single origin. In prod, populate this with your SPA's origin.
+    allowed_origins: []
+    allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    allowed_headers: ["Content-Type"]
+    allow_credentials: true
+
+session:
+  ttl: 720h
+  cookie_name: yauth_session
+  cookie_path: /
+  cookie_secure: false
+  cookie_same_site: lax
+
+plugins:
+  email_password:
+    enabled: true
+    min_password_length: 12
+    require_email_verification: false
+    # HIBP password-breach check. Off by default in this dev config so
+    # ./task dev tests don't hit the network. Set to true for prod.
+    hibp_check: false

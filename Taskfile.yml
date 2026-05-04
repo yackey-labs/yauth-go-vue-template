@@ -49,9 +49,30 @@ tasks:
       - task: db-up
 
   migrate:
-    desc: Run schema migrations against DATABASE_URL and exit (idempotent)
+    desc: Run schema migrations against the DB in yauth.yaml (idempotent)
     dir: '{{.ROOT}}/server'
-    cmd: go run . migrate
+    cmd: go run . migrate -c ../yauth.yaml
+
+  schema-check:
+    desc: Verify the live DB schema matches the plugins enabled in yauth.yaml
+    dir: '{{.ROOT}}'
+    cmd: ./yauth check -c yauth.yaml
+
+  yauth-status:
+    desc: Load + validate yauth.yaml and print enabled plugins
+    dir: '{{.ROOT}}'
+    cmd: ./yauth status -c yauth.yaml
+
+  gen-spec:
+    desc: Emit the application OpenAPI 3.1 spec to web/openapi.json
+    dir: '{{.ROOT}}/server'
+    cmd: go run . gen-spec -o ../web/openapi.json
+
+  gen:
+    desc: Regenerate the typed TS client from the live spec (gen-spec + orval)
+    deps: [gen-spec]
+    dir: '{{.ROOT}}/web'
+    cmd: pnpm orval
 
   server:
     desc: Run the Go backend on :3000 (foreground)

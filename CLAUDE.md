@@ -4,119 +4,186 @@
 
 A working starter for a Go + Vue 3 web app authenticated by
 [yauth-go](https://github.com/yackey-labs/yauth-go). Email/password +
-session cookies, GORM-backed Postgres, and a Vite-based SPA that uses
-the published `@yackey-labs/yauth-ui-vue` components.
+session cookies, GORM-backed Postgres, a Vite-based SPA, and a typed
+TS client generated from the server's own OpenAPI spec (Huma → orval).
 
-Two halves under one repo:
+## Layout
 
-| Path                | Stack                                                                          |
-| ------------------- | ------------------------------------------------------------------------------ |
-| `server/`           | Go module — `yauth-go` + `gormrepo` (Postgres) + `email-password` + `status` + `admin` plugins. Subcommands: `serve` (default), `migrate`. |
-| `web/`              | Vue 3 + TS + vue-router + Vite 8 + Tailwind v4 (`@tailwindcss/vite`). pnpm + vp ([vite-plus](https://viteplus.dev)). Consumes `@yackey-labs/yauth-{client,ui-vue}@^0.12.2`. |
-| `docker-compose.yml`| Postgres 17-alpine on `:5432` with healthcheck.                                |
-| `Taskfile.yml`      | Single source of truth for setup/dev/build/lint/test/CI commands.              |
-| `task`              | Tiny shell wrapper that runs Task via `go tool task` (declared in `server/go.mod`). |
-| `.github/workflows/ci.yml` | Server (Go) + Web (Vue) jobs, both driven by `./task` targets.          |
+```
+yauth-go-vue-template/
+├── server/                          # Go module
+│   ├── main.go                      # subcommand dispatcher
+│   └── internal/
+│       ├── app/                     # composition root
+│       │   ├── app.go               # App: Cfg + DB + YAuth, wired via New()
+│       │   ├── serve.go             # HTTP server with graceful shutdown
+│       │   ├── migrate.go           # explicit migration entry
+│       │   └── genspec.go           # writes OpenAPI JSON for the typed client
+│       ├── config/                  # wraps yauthcfg.Load("yauth.yaml")
+│       ├── store/                   # DB Open() + Migrate() (yauth + your repos)
+│       ├── auth/                    # builds *yauth.YAuth from cfg
+│       └── api/
+│           ├── api.go               # Huma factory + Spec()
+│           ├── router.go            # mounts yauth routes + Huma routes + middleware
+│           ├── middleware/          # custom net/http middleware (logging, …)
+│           └── handlers/            # typed app handlers, one file each
+├── web/
+│   ├── src/api/fetcher.ts           # custom fetch (credentials: 'include' + ApiError)
+│   ├── src/generated/api.ts         # orval output — committed for hermetic builds
+│   ├── orval.config.ts              # generation config
+│   └── openapi.json                 # spec snapshot — committed; CI checks freshness
+├── yauth.yaml                       # single source of truth for yauth knobs
+├── docker-compose.yml               # Local Postgres 17
+├── Taskfile.yml                     # taskfile.dev — every entry point
+├── task                             # ./task — wraps `go tool task`
+└── yauth                            # ./yauth — wraps `go tool yauth` (operator CLI)
+```
+
+`internal/` is a Go convention: anything inside is private to this
+module. Add new packages there; no external repo can import them.
 
 ## Key Commands
 
-Always use `./task <name>` (or `task <name>` if Task is installed
-globally). Never use `go run` / `pnpm dev` directly in docs or
-suggestions — the Taskfile is authoritative.
+Always go through `./task <name>` and `./yauth <subcommand>`. Both
+wrap `go tool ...` so contributors don't need global binaries — only
+Go ≥ 1.24.
 
 ```bash
 ./task                    # list every task
 ./task setup              # one-time bootstrap (.env, deps, modules)
 ./task dev                # Postgres + backend + frontend together
 ./task migrate            # explicit schema migration (idempotent)
+./task gen                # gen-spec + orval → fresh typed TS client
 ./task ci                 # lint + typecheck + build + test (matches CI)
+
+./yauth status -c yauth.yaml      # validate config + plugins
+./yauth check  -c yauth.yaml      # preflight DB schema vs enabled plugins
+./yauth dump-schema -c yauth.yaml # CREATE TABLE statements for the live schema
 ```
 
-`./task dev` brings up the only URL anyone should hit in a browser:
-**`http://localhost:5173`**. Vite serves the SPA there and proxies
-`/api` to the Go backend on `:3000`. Same-origin in dev → no CORS,
-session cookies are first-party.
+Browser URL during dev is **http://localhost:5173** (Vite proxies `/api` →
+`:3000`). Don't tell users to hit `:3000` directly.
 
-## Local Architecture
+## Layered architecture
 
 ```
-                 ┌──────────────────────┐
- Browser ──────► │ Vite dev (:5173)     │
-                 │ • serves SPA         │
-                 │ • proxy /api → :3000 │
-                 └──────────┬───────────┘
-                            │ /api/*
-                            ▼
-                 ┌──────────────────────┐    DSN     ┌────────────────┐
-                 │ Go server (:3000)    │ ─────────► │ Postgres :5432 │
-                 │ • /api/auth/* yauth  │            │ (docker)       │
-                 │ • /api/me protected  │            └────────────────┘
-                 │ • /openapi.json /docs│
-                 └──────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                       main.go                            │
+│   subcommand dispatcher: serve | migrate | gen-spec      │
+└─────────────────────────┬────────────────────────────────┘
+                          ▼
+┌──────────────────────────────────────────────────────────┐
+│              internal/app  (composition root)            │
+│  • New(cfgPath) → loads config, opens DB, builds yauth   │
+│  • Serve  / Migrate  / GenSpec                           │
+└──────┬─────────────────┬───────────────────┬─────────────┘
+       │                 │                   │
+       ▼                 ▼                   ▼
+   internal/config   internal/store      internal/auth
+   (yauthcfg.Load)   (gormrepo)          (*yauth.YAuth)
+                          │
+                          ▼
+                   internal/api
+                   ├── api.go        Huma factory + Spec()
+                   ├── router.go     mounts every route + middleware
+                   ├── middleware/   request logging
+                   └── handlers/     typed Huma operations
 ```
+
+**Adding a new app route:**
+1. New file in `internal/api/handlers/` with input/output structs and a
+   `register*(api huma.API)` function. Reference
+   [`me.go`](server/internal/api/handlers/me.go).
+2. Add the call to `Register()` in
+   [`handlers/handlers.go`](server/internal/api/handlers/handlers.go).
+3. If protected, mount under `requireAuth` in
+   [`router.go`](server/internal/api/router.go).
+4. `./task gen` and commit `web/openapi.json` +
+   `web/src/generated/api.ts`.
+
+**Adding a new repository / store:**
+- Drop it in `internal/store/` next to `store.go`. Keep the existing
+  `Open` / `Migrate` shape. App handlers and services depend on
+  store-level types, not on `*gorm.DB` directly, so future swap-outs
+  are local.
+
+**Adding a service (business logic):**
+- Create `internal/service/<thing>.go`. A service typically holds a
+  `*store.Foo` and exposes high-level methods. Handlers depend on
+  services, not stores.
+
+## Config: yauth.yaml + yauthcfg
+
+[`yauth.yaml`](yauth.yaml) at the repo root holds every yauth-go knob.
+[`internal/config.Load`](server/internal/config/config.go) wraps
+`yauthcfg.Load`, which:
+
+1. Reads the YAML
+2. Substitutes `env:NAME` placeholders from the process environment
+3. Validates the resulting struct
+
+**Don't add a parallel env-loading layer.** If you need a new config
+field, prefer adding it to yauth.yaml's schema (or a sibling YAML
+section parsed alongside) rather than inventing fresh `os.Getenv`
+plumbing.
 
 ## Migrations
 
-Schema migrations are GORM `AutoMigrate` (idempotent). Two ways to run them:
+- `database.auto_migrate: true` in yauth.yaml → server runs
+  `gormrepo.Migrate` on startup. Local-only convenience.
+- `auto_migrate: false` (production) → run `./task migrate` (or
+  `./yauth migrate -c yauth.yaml`) as a separate deploy step.
+- CI exercises both: it migrates explicitly via `./task migrate`, then
+  boots the server expecting the schema is already there.
 
-- **Auto on startup** (default) — convenient for `./task dev`. Set
-  `AUTO_MIGRATE=false` to disable.
-- **Explicit** — `./task migrate` (which runs `server migrate`). Use
-  this in CI/CD before rolling out new replicas so two booting
-  instances don't race the migration.
+## OpenAPI / typed client
 
-CI exercises both paths: it calls `./task migrate` as its own step,
-then boots the server with `AUTO_MIGRATE=false` for the smoke test to
-prove the explicit path works.
+The contract:
+- **Source of truth** — Huma operation declarations in
+  `internal/api/handlers/`. Tags on Go structs (`json`, `format`,
+  `enum`, `doc`) flow into the spec.
+- **Spec** — `./task gen-spec` writes `web/openapi.json`. No HTTP
+  listener needed (the spec is built from declarations alone).
+- **Client** — `./task gen` runs gen-spec + orval → typed
+  `web/src/generated/api.ts`.
+- **Both committed** — CI fails if `./task gen` would change either.
 
-## yauth-go API Notes
+`web/src/api/fetcher.ts` is the orval mutator — add custom headers,
+retry logic, telemetry there. The two-arg `apiFetch(url, init)`
+signature matches what orval emits for `client: 'fetch'`.
+
+## yauth-go API gotchas
 
 Things that bit me writing this template — keep in mind:
 
-- `middleware.AuthUserFromContext(ctx)` returns `(*domain.AuthUser, bool)`,
-  not a single value. Always destructure both.
+- `middleware.AuthUserFromContext(ctx)` returns
+  `(*domain.AuthUser, bool)`, not a single value.
 - `AuthUser` embeds `User` and `Session`. Email/role/etc. live at
   `user.User.Email`, **not** `user.Email`.
 - `user.Method` (string) is the credential class — `cookie`, `bearer`,
   `apikey` — not `user.AuthMethod`.
-- Mount with `http.StripPrefix("/api/auth", ya.Router())` if you want
-  routes under `/api/auth/...`. Without `StripPrefix`, the router
-  expects them at the root.
-- The published `@yackey-labs/yauth-ui-vue@0.12.0` is broken (lazy
-  `import()` race + envelope-not-unwrapped + workspace:* leaks). Use
-  `^0.12.2`.
+- `yauthcfg` env-var substitution uses `env:NAME` syntax (e.g.
+  `dsn: env:DATABASE_URL`), NOT `${NAME}`.
+- `yauth.NewFromConfig` only wires `email_password` + `telemetry`
+  today. Admin/status/etc. are TODO upstream — that's why this template
+  builds yauth manually in [`internal/auth/auth.go`](server/internal/auth/auth.go)
+  with explicit `WithPlugin(...)` calls.
 
-## Vue / yauth-ui-vue Notes
+## Vue / yauth-ui-vue
 
 - Components use **callback props**, not Vue emits:
-  `<LoginForm :on-success="handler" />` — `@success="..."` silently
+  `<LoginForm :on-success="handler" />`. `@success="..."` silently
   does nothing.
 - `useSession()` returns `{ user, loading, isAuthenticated, isLoading,
   isEmailVerified, userRole, userEmail, displayName, refetch, logout }`.
   No `error` field.
-- The yauth-ui-vue components ship Tailwind class names referencing
+- yauth-ui-vue components ship Tailwind class names referencing
   semantic tokens (`text-destructive`, `bg-input`, `ring-ring`, ...).
-  `web/src/style.css` maps those to concrete colors via Tailwind v4's
-  `@theme` block — keep that in sync if the components add new tokens.
+  `web/src/style.css` maps them via Tailwind v4's `@theme` block —
+  keep that in sync if upstream adds new tokens.
 - `YAuthPlugin` is installed with `{ baseUrl: '/api/auth' }`. Don't
   switch to a pre-built `client` unless you have a reason; the
   `baseUrl` path is correct in 0.12.2+.
-
-## Config
-
-All runtime config goes through env vars (read in `server/main.go`):
-
-| Env             | Default                                                                  | What                                              |
-| --------------- | ------------------------------------------------------------------------ | ------------------------------------------------- |
-| `DATABASE_URL`  | `postgres://yauth:yauth@127.0.0.1:5432/yauth_app?sslmode=disable`        | Postgres DSN.                                     |
-| `PORT`          | `3000`                                                                   | HTTP listener.                                    |
-| `CORS_ORIGINS`  | (unset)                                                                  | Comma-separated. Empty = CORS off (Vite proxy mode). |
-| `DISABLE_HIBP`  | (unset)                                                                  | Set to `true` to skip the HIBP password check (dev). |
-| `AUTO_MIGRATE`  | `true`                                                                   | Set to `false` to disable startup auto-migrate.   |
-
-`AutoAdminFirstUser: true` is hardcoded in `serve()` — first registered
-user becomes admin. Remove that line for prod if you want manual admin
-provisioning.
 
 ## Conventions
 
@@ -126,34 +193,38 @@ provisioning.
   `./task lint` + `./task typecheck`. Default `tsconfig.app.json` keeps
   `erasableSyntaxOnly: true` on (works with yauth-ui-vue 0.12.2+).
 - **JS package manager** — pnpm only. Never use npm/yarn/bun for
-  scripts. `packageManager` is pinned in `web/package.json` so corepack
-  resolves the right pnpm.
+  scripts. `packageManager` is pinned in `web/package.json`.
 - **Build tool** — `vp` (vite-plus) for the web side. `pnpm dev` /
   `pnpm build` invoke `vp dev` / `vp build`.
-- **Tailwind** — v4, via `@tailwindcss/vite`. The `@theme` block in
-  `src/style.css` is the design-tokens contract; don't replace it with
-  `tailwind.config.js`.
+- **Tailwind** — v4 via `@tailwindcss/vite`. The `@theme` block in
+  `src/style.css` is the design-tokens contract; don't replace it
+  with `tailwind.config.js`.
+- **Logging** — `slog` everywhere on the Go side. Don't introduce
+  `log.Println` in new code; use `slog.Info` / `slog.Error` with
+  structured fields.
 
 ## CI
 
 `.github/workflows/ci.yml` runs the same `./task` targets you use locally:
 
-- `server` job: `./task lint-server`, `build-server`, `test-server`,
-  `migrate`, then a curl smoke (register → login → `/api/me`) against a
-  Postgres 17 service container.
-- `web` job: `./task lint-web`, `typecheck`, `build-web`. pnpm store
-  cached across runs.
+- `server` job: `lint-server`, `build-server`, `test-server`,
+  `./yauth status`, `./task migrate`, then curl smoke (register →
+  login → `/api/me`) against a Postgres 17 service container.
+- `web` job: `lint-web`, `typecheck`, `build-web`, plus a stale check
+  that fails if `./task gen` would change committed artifacts.
 
-Both jobs `go mod download` against `server/go.sum` so the Task tool
-itself is fetched and cached.
+Both jobs `go mod download` so the Task and yauth tools are fetched
+and cached.
 
 ## Don't
 
 - Don't add `go run` / `pnpm` invocations directly to docs or scripts —
   add a Taskfile target and reference that.
-- Don't reintroduce `npm publish` for the TS packages (they're in the
-  yauth repo, not here, but if you ever vendor them: pnpm publish
-  rewrites `workspace:*`; npm doesn't).
-- Don't bypass the Vite proxy in dev — point fetches at relative `/api/...`
-  so cookies are first-party. If you absolutely need to call the
-  backend directly, set `CORS_ORIGINS` and use `credentials: 'include'`.
+- Don't drift the typed client. Whenever you change a handler's input
+  or output, run `./task gen` and commit the diff.
+- Don't bypass the Vite proxy in dev — point fetches at relative
+  `/api/...` so cookies stay first-party.
+- Don't add a parallel env-loading layer alongside yauthcfg. Extend
+  the yaml schema or load adjacent YAML.
+- Don't rebuild the dispatcher in main.go; add subcommands by extending
+  the switch and adding a `func` to `internal/app/`.

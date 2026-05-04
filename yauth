@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Convenience wrapper for the yauth-go operator CLI. The `tool` directive
+# in server/go.mod pins the version; this wrapper invokes it via
+# `go tool yauth` so contributors don't need a global yauth binary.
+#
+# Common commands (run `./yauth --help` for the full list):
+#   ./yauth migrate -c yauth.yaml          # apply schema migrations
+#   ./yauth check -c yauth.yaml            # validate config + DB reachability
+#   ./yauth status -c yauth.yaml           # ping a running instance
+#   ./yauth dump-schema -c yauth.yaml      # print the table layout
+#   ./yauth gen-secrets                    # cryptographically random secrets
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+exec go -C "$ROOT/server" tool yauth "$@"

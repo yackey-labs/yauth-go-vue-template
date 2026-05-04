@@ -2,7 +2,11 @@ module github.com/yackey-labs/yauth-go-vue-template/server
 
 go 1.26.2
 
-require github.com/yackey-labs/yauth-go v0.0.0-20260504161935-e7a8c398bf0b
+require (
+	github.com/danielgtaylor/huma/v2 v2.37.3
+	github.com/yackey-labs/yauth-go v0.0.0-20260504161935-e7a8c398bf0b
+	gorm.io/gorm v1.31.1
+)
 
 require (
 	cel.dev/expr v0.25.1 // indirect
@@ -57,7 +61,6 @@ require (
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20251210132809-ee656c7534f5 // indirect
-	github.com/danielgtaylor/huma/v2 v2.37.3 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/dominikbraun/graph v0.23.0 // indirect
@@ -84,6 +87,7 @@ require (
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-getter v1.8.6 // indirect
 	github.com/hashicorp/go-version v1.8.0 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgx/v5 v5.9.2 // indirect
@@ -109,6 +113,7 @@ require (
 	github.com/redis/go-redis/v9 v9.19.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sajari/fuzzy v1.0.0 // indirect
+	github.com/spf13/cobra v1.10.2 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
@@ -150,9 +155,11 @@ require (
 	gorm.io/driver/mysql v1.6.0 // indirect
 	gorm.io/driver/postgres v1.6.0 // indirect
 	gorm.io/driver/sqlite v1.6.0 // indirect
-	gorm.io/gorm v1.31.1 // indirect
 	mvdan.cc/sh/moreinterp v0.0.0-20260120230322-19def062a997 // indirect
 	mvdan.cc/sh/v3 v3.13.1 // indirect
 )
 
-tool github.com/go-task/task/v3/cmd/task
+tool (
+	github.com/go-task/task/v3/cmd/task
+	github.com/yackey-labs/yauth-go/cmd/yauth
+)

@@ -33,7 +33,6 @@ jobs:
           --health-retries 20
     env:
       DATABASE_URL: postgres://yauth:yauth@127.0.0.1:5432/yauth_app?sslmode=disable
-      DISABLE_HIBP: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -43,7 +42,7 @@ jobs:
           cache: true
           cache-dependency-path: server/go.sum
 
-      - name: go mod download (also fetches the task tool)
+      - name: go mod download (also fetches the task / yauth tools)
         run: go mod download
         working-directory: server
 
@@ -56,16 +55,19 @@ jobs:
       - name: test-server
         run: ./task test-server
 
-      - name: migrate (explicit step)
+      - name: yauth status (validates yauth.yaml + plugin wiring)
+        run: ./yauth status -c yauth.yaml
+
+      - name: migrate via app subcommand (production-blessed entry point)
         run: ./task migrate
 
-      - name: smoke — boot server, register + login + protected fetch
-        env:
-          AUTO_MIGRATE: "false"   # already migrated above; verify serve doesn't need it
+      - name: smoke — boot server, register + login + protected typed fetch
         run: |
-          server/server &
-          SERVER_PID=$!
-          trap "kill $SERVER_PID 2>/dev/null || true" EXIT
+          # Use a fresh shell so the DB-already-migrated path is exercised
+          # and AUTO_MIGRATE doesn't redo work.
+          server/server -c yauth.yaml &
+          PID=$!
+          trap "kill $PID 2>/dev/null || true" EXIT
 
           for i in $(seq 1 20); do
             if curl -fsS http://127.0.0.1:3000/openapi.json -o /dev/null; then break; fi
@@ -125,3 +127,15 @@ jobs:
 
       - name: build-web
         run: ./task build-web
+
+      - name: typed client is fresh
+        # Regenerates spec + orval client and fails if anything changed —
+        # so server-side handler changes always ship with a regenerated
+        # web/openapi.json + web/src/generated/api.ts.
+        run: |
+          ./task gen
+          if ! git diff --quiet -- web/openapi.json web/src/generated; then
+            echo "::error::generated client is stale. Run \`./task gen\` and commit the diff."
+            git --no-pager diff -- web/openapi.json web/src/generated | head -200
+            exit 1
+          fi

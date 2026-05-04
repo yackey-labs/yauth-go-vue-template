@@ -2,19 +2,29 @@
 
 Production-shaped starter for a Go + Vue app authenticated by
 [yauth-go](https://github.com/yackey-labs/yauth-go), with email/password
-login, session cookies, GORM-backed Postgres persistence, and a typed
-Vue 3 frontend driven by the published `@yackey-labs/yauth-ui-vue`
-components.
+session cookies, GORM-backed Postgres persistence, and a Vue 3 SPA whose
+custom routes are typed end-to-end via Huma → OpenAPI → orval.
 
 ```
 yauth-go-vue-template/
-├── server/                    # Go backend (yauth-go + GORM Postgres)
+├── server/                    # Go backend (yauth-go + GORM Postgres + Huma)
+│   ├── main.go                # subcommand dispatcher (serve | migrate | gen-spec)
+│   └── internal/
+│       ├── app/               # composition root: New / Serve / Migrate / GenSpec
+│       ├── config/            # wraps yauthcfg.Load("yauth.yaml")
+│       ├── store/             # DB open + migrations (place for app repos)
+│       ├── auth/              # builds *yauth.YAuth from config
+│       └── api/               # router + Huma + middleware + handlers/
 ├── web/                       # Vue 3 SPA (Vite + vp + Tailwind v4)
+│   ├── src/api/fetcher.ts     # custom fetch wrapper (credentials: 'include')
+│   └── src/generated/api.ts   # orval-generated typed client (committed)
+├── yauth.yaml                 # single source of truth for yauth knobs
 ├── docker-compose.yml         # Local Postgres
-├── Taskfile.yml               # Convenience targets (taskfile.dev)
+├── Taskfile.yml               # taskfile.dev — every entry point
 ├── task                       # `./task <name>` — wraps `go tool task`
-├── .env.example               # Copy to .env
-└── .github/workflows/ci.yml   # Lint + build + test for both halves
+├── yauth                      # `./yauth <subcommand>` — wraps the yauth-go CLI
+├── .env.example               # Copy to .env (DATABASE_URL etc.)
+└── .github/workflows/ci.yml   # Server (Go) + Web (Vue) jobs, both via ./task
 ```
 
 ## Quick start
@@ -28,133 +38,149 @@ yauth-go-vue-template/
 ```
 
 Open <http://localhost:5173>. **That's the only URL you need in your
-browser** — Vite serves the SPA there and proxies `/api` to the Go
-backend at `http://localhost:3000`, so the SPA and the API share an
-origin in dev (no CORS, session cookies Just Work).
+browser** — Vite serves the SPA and proxies `/api` to the Go backend at
+`http://localhost:3000`. SPA and API share an origin in dev, so session
+cookies are first-party (no CORS).
 
-Register, log in, watch the dashboard populate from
-`GET /api/auth/session`. The dashboard also calls a demo `GET /api/me`
-route to show how to protect your own handlers with
-`ya.Middleware().RequireAuth(...)`.
+The dashboard demonstrates two ways to talk to the backend:
+- **`useSession()`** from `@yackey-labs/yauth-ui-vue` — yauth's own
+  reactive session state.
+- **`getMe()`** from `web/src/generated/api.ts` — a typed call to your
+  application's own protected `/api/me` endpoint, generated from the
+  Huma-emitted OpenAPI spec.
 
-To stop, hit Ctrl-C (`./task dev` cleans up both processes), and
-`./task db-down` if you want to stop Postgres too.
+## Tooling
 
-## Task runner
+`./task` is the single entry point. Both the Task runner and the
+yauth-go operator CLI are declared as Go tools in
+[`server/go.mod`](server/go.mod), so contributors don't need global
+binaries — just Go ≥ 1.24.
 
-`./task` is a tiny wrapper that runs Task ([taskfile.dev](https://taskfile.dev))
-via the `tool` directive in [`server/go.mod`](server/go.mod), so you don't
-need a global `task` binary on PATH — just Go ≥ 1.24. If you do have
-Task installed (`brew install go-task`), you can use `task <name>`
-directly instead.
+| Wrapper          | Backed by                  | Use it for                                            |
+| ---------------- | -------------------------- | ----------------------------------------------------- |
+| `./task <name>`  | `go tool task`             | dev / build / lint / test / migrate / gen-spec / gen  |
+| `./yauth <cmd>`  | `go tool yauth`            | `migrate`, `check`, `status`, `dump-schema`, `gen-secrets`, ... |
 
-| Target               | What                                                      |
-| -------------------- | --------------------------------------------------------- |
-| `./task` (no args)   | List all tasks with descriptions                          |
-| `./task setup`       | First-time bootstrap                                      |
-| `./task dev`         | Postgres + backend + frontend in one shell                |
-| `./task server`      | Backend only (foreground)                                 |
-| `./task web`         | Frontend only (foreground)                                |
-| `./task migrate`     | Run schema migrations and exit (idempotent)               |
-| `./task db-up`       | Start the Postgres container                              |
-| `./task db-down`     | Stop the Postgres container                               |
-| `./task db-reset`    | Drop the Postgres volume and start it again               |
-| `./task build`       | Compile the server binary + build the web bundle          |
-| `./task lint`        | `go vet`, `gofmt -l` (must be empty), and `vp lint`       |
-| `./task typecheck`   | `vue-tsc --noEmit` over the web app                       |
-| `./task test`        | `go test ./...`                                           |
-| `./task ci`          | Same checks CI runs locally — lint + typecheck + build + test |
-| `./task clean`       | Remove build outputs and Vite caches                      |
+### Common task targets
 
-### What's running while `./task dev` is up
+| Target                 | What                                                          |
+| ---------------------- | ------------------------------------------------------------- |
+| `./task` (no args)     | List every task with descriptions                             |
+| `./task setup`         | First-time bootstrap                                          |
+| `./task dev`           | Postgres + backend + frontend in one shell                    |
+| `./task migrate`       | `server migrate` — idempotent schema migration                |
+| `./task schema-check`  | `yauth check` — verify live DB matches enabled plugins        |
+| `./task yauth-status`  | `yauth status` — load + validate yauth.yaml                   |
+| `./task gen-spec`      | Emit the OpenAPI spec to `web/openapi.json`                   |
+| `./task gen`           | gen-spec + run orval to refresh the typed TS client           |
+| `./task build`         | Compile server binary + build web bundle                      |
+| `./task lint`          | `go vet`, `gofmt`, and `vp lint`                              |
+| `./task typecheck`     | `vue-tsc --noEmit` over the web app                           |
+| `./task test`          | `go test ./...`                                               |
+| `./task ci`            | Same checks CI runs locally — lint + typecheck + build + test |
 
-| Process              | Port        | What                                                            |
-| -------------------- | ----------- | --------------------------------------------------------------- |
-| Postgres             | `:5432`     | `docker compose up -d postgres` — DSN in `.env` `DATABASE_URL`  |
-| Go backend           | `:3000`     | `yauth-go` at `/api/auth/*`, OpenAPI UI at `/docs`              |
-| Vite dev server      | `:5173`     | Serves the SPA, proxies `/api` → `:3000` (the only URL you hit) |
+## How config works
 
-## Project layout
+[`yauth.yaml`](yauth.yaml) is the single source of truth for every knob
+yauth-go cares about — DB driver/DSN, session/cookie settings, CORS,
+plugin config, mailer, telemetry. It's loaded by
+[`yauthcfg.Load`](https://pkg.go.dev/github.com/yackey-labs/yauth-go/yauthcfg#Load),
+the same function the standalone `yauth` CLI uses, so the running
+server, `./task migrate`, and `./yauth check` all read the same config.
 
-### `server/` — Go backend
+Secret values use `env:NAME` placeholders — yauthcfg substitutes the env
+var at load time. Example: `database.dsn: env:DATABASE_URL` reads from
+your `.env` (copied by `./task setup`) or your platform's secret store
+in production. There is no fallback — if the env var isn't set,
+yauthcfg fails loudly.
 
-- [`main.go`](server/main.go) — env-driven config, builds the yauth
-  router, mounts `/api/auth/*`, `/api/me` (protected demo), and the
-  OpenAPI UI at `/docs`. Graceful shutdown on SIGTERM/SIGINT.
-- Subcommands: `serve` (default — runs the HTTP server) and `migrate`
-  (runs schema migrations and exits).
-- Plugins: `email-password`, `status`, `admin`. Bearer-JWT and API-key
-  plugins are commented out — uncomment to opt in.
-- Repo: `gormrepo.OpenPostgres(DATABASE_URL)`.
-- Two ways to run schema migrations:
-  - **Auto, on startup** — default. Convenient for `./task dev`. Set
-    `AUTO_MIGRATE=false` to disable.
-  - **Explicit** — `./task migrate` (or `./server migrate`).
-    Idempotent. Use this in CI/CD before rolling out a new replica set
-    so two booting replicas don't race the migration.
-- The first user registered is auto-promoted to `admin`
-  (`AutoAdminFirstUser: true` in config), so you can hit
-  `/api/auth/admin/users` without manual setup.
+## Migrations
 
-### `web/` — Vue 3 SPA
+Schema migrations are GORM `AutoMigrate` (idempotent). Two ways to run:
 
-- [`vite.config.ts`](web/vite.config.ts) — proxies `/api` to
-  `http://localhost:3000`, includes `@tailwindcss/vite` so the yauth-ui
-  components render styled out of the box.
-- [`src/main.ts`](web/src/main.ts) — installs `YAuthPlugin` with
-  `{ baseUrl: '/api/auth' }` and the router.
-- [`src/views/`](web/src/views/) — `LoginView`, `RegisterView`,
-  `DashboardView`. The dashboard demonstrates `useSession()` (user +
-  loading + logout) and a manual
-  `fetch('/api/me', { credentials: 'include' })` call against the
-  protected backend route.
+- **Auto on startup** — set `database.auto_migrate: true` in
+  `yauth.yaml`. Convenient for `./task dev`.
+- **Explicit** — set `auto_migrate: false`, then run `./task migrate`
+  (or `./yauth migrate -c yauth.yaml`) before rolling out replicas.
+  This is what you want in prod — concurrent AutoMigrate calls across
+  booting replicas race.
+
+CI exercises both paths: it runs `./task migrate` as its own step, then
+boots the server (which sees the schema already in place) for the
+smoke test.
+
+## End-to-end typed API client
+
+Your app's custom routes are typed all the way to the browser:
+
+1. **Server** — declare a route with [Huma](https://huma.rocks) in
+   [`internal/api/handlers/`](server/internal/api/handlers). Input/output
+   structs become OpenAPI schemas; the operation metadata becomes a path.
+   See [`me.go`](server/internal/api/handlers/me.go) for the pattern.
+2. **Spec** — `./task gen-spec` writes `web/openapi.json`. No HTTP
+   listener needed; the spec is built from the handler declarations.
+3. **Client** — `./task gen` runs gen-spec + [orval](https://orval.dev),
+   which writes `web/src/generated/api.ts`. Every operation surfaces as
+   an exported function with typed input + output.
+4. **Browser** — import from `./generated/api` and call. The custom
+   fetcher in [`src/api/fetcher.ts`](web/src/api/fetcher.ts) adds
+   `credentials: 'include'` so the yauth session cookie travels along.
+
+CI runs `./task gen` and fails if anything diffs — server-side handler
+changes must ship with a regenerated client.
+
+### Adding a new route
+
+1. Drop a new file under `server/internal/api/handlers/` defining the
+   input/output structs and a `register*(api huma.API)` function.
+2. Call it from `Register()` in
+   [`handlers/handlers.go`](server/internal/api/handlers/handlers.go).
+3. If the route is protected, add a `mux.Handle("/api/<path>", requireAuth)`
+   line to [`router.go`](server/internal/api/router.go).
+4. Run `./task gen`, commit the regenerated `web/openapi.json` and
+   `web/src/generated/api.ts`, and use the typed function in your Vue
+   components.
 
 ## CORS for split origins
 
-The Vite proxy means CORS doesn't apply in dev — the browser sees one
-origin (`localhost:5173`) and Vite forwards `/api` server-side, so
-cookies are first-party. If you deploy the SPA to a different origin
-than the backend, configure `YAuthConfig.CORS` in
-[`server/main.go`](server/main.go):
+The Vite proxy means CORS doesn't apply in dev. If you deploy the SPA
+on a different origin than the backend, set
+`server.cors.allowed_origins` in `yauth.yaml`:
 
-```go
-cfg := yauth.NewDefaultConfig()
-cfg.CORS = yauth.CORSConfig{
-    AllowedOrigins:   []string{"https://app.example.com"},
-    AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-    AllowedHeaders:   []string{"Content-Type"},
-    AllowCredentials: true, // required — session cookies are credentials
-}
+```yaml
+server:
+  cors:
+    allowed_origins: ["https://app.example.com"]
+    allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    allowed_headers: ["Content-Type"]
+    allow_credentials: true   # required — session cookies are credentials
 ```
 
-`AllowCredentials: true` is essential — without it the browser refuses
-to include cookies on cross-origin requests, which breaks session auth.
-The starter already wires `CORS_ORIGINS=…,…` from `.env` into this
-block, so the production path is "just set the env var."
+`allow_credentials: true` is essential — without it the browser refuses
+to include cookies on cross-origin requests, breaking session auth.
 
 ## Deployment notes
 
-- Set `DATABASE_URL`, `PORT`, and (if needed) `CORS_ORIGINS`.
-- Set `AUTO_MIGRATE=false` and run `./server migrate` (or
-  `./task migrate`) as a separate step in your deploy pipeline before
-  rolling out new replicas.
-- The cookie defaults are `Secure: false` for dev. In production set
-  `cfg.Cookie.Secure = true` (or use `yauthcfg` to load the cookie
-  block from YAML).
-- For Postgres, point at a managed service. The local `docker-compose`
-  service is for development only.
+- Configure `DATABASE_URL` (referenced by `yauth.yaml` via
+  `env:DATABASE_URL`).
+- Set `session.cookie_secure: true` in `yauth.yaml`.
+- Set `database.auto_migrate: false` and run `./task migrate` (or
+  `./yauth migrate -c yauth.yaml`) as a separate step in your deploy
+  pipeline before rolling out new replicas.
+- Populate `server.cors.allowed_origins` if the SPA isn't served from
+  the same origin as the backend.
 
 ## CI
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every
-push and PR. It uses the same `./task` targets as your local shell:
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the same
+`./task` targets you use locally:
 
-- **Server (Go)** — `./task lint-server` + `./task build-server` +
-  `./task test-server` + `./task migrate` + a curl smoke test
-  (register → login → `/api/me`) against a Postgres 17 service
-  container.
-- **Web (Vue)** — `./task lint-web` + `./task typecheck` +
-  `./task build-web`, with the pnpm store cached across runs.
+- **Server (Go)** — `lint-server`, `build-server`, `test-server`,
+  `./yauth status`, `./task migrate`, plus a curl smoke (register →
+  login → `/api/me`) against a Postgres 17 service container.
+- **Web (Vue)** — `lint-web`, `typecheck`, `build-web`, plus a stale
+  check that fails if `./task gen` would change the committed
+  `web/openapi.json` or `web/src/generated`.
 
 ## License
 
