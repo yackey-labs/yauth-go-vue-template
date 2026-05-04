@@ -205,6 +205,32 @@ skips the CORS dance with the collector entirely.
 Disable browser-side OTel by leaving `VITE_OTEL_EXPORTER_OTLP_ENDPOINT`
 unset — `web/src/otel.ts` becomes a no-op.
 
+### Web Vitals + browser error capture
+
+Three more instrumentations sit on top of the trace pipeline (no
+metrics SDK — vitals go in as spans for cheap correlation):
+
+- **Web Vitals** —
+  [`web/src/instrumentation/vitals.ts`](web/src/instrumentation/vitals.ts)
+  uses Google's `web-vitals` library (`onLCP/INP/CLS/FCP/TTFB`) and
+  emits one span per metric with `web_vital.{name,value,delta,rating,id,navigation_type}`
+  attributes. Honeycomb / SigNoz pattern.
+- **Browser errors** —
+  [`web/src/instrumentation/errors.ts`](web/src/instrumentation/errors.ts)
+  registers `window.error` + `unhandledrejection` listeners and
+  overrides `console.error`. Each fires `span.recordException()` and
+  sets the span status to `ERROR`. The console override calls the
+  original first so local debugging still sees the message.
+- **Vue framework errors** — `app.config.errorHandler` in
+  [`main.ts`](web/src/main.ts) records render/lifecycle/watcher
+  failures with `vue.component` + `vue.info` attributes. In dev it
+  re-throws so the browser overlay still appears.
+
+`installWebVitals()` and `installBrowserErrorHandlers()` are called
+from `main.ts` after `./otel` is imported. Adding new browser-side
+instrumentation: drop a file under `web/src/instrumentation/` and
+call its `install*()` from `main.ts`.
+
 ## yauth-go API gotchas
 
 Things that bit me writing this template — keep in mind:

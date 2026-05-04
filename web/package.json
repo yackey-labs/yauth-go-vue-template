@@ -23,6 +23,7 @@
     "@opentelemetry/resources": "^2.0.0",
     "@opentelemetry/sdk-trace-web": "^2.0.0",
     "@opentelemetry/semantic-conventions": "^1.30.0",
+    "web-vitals": "^5.0.0",
     "@tailwindcss/vite": "^4.0.0",
     "@yackey-labs/yauth-client": "^0.12.2",
     "@yackey-labs/yauth-ui-vue": "^0.12.2",

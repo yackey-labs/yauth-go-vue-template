@@ -184,18 +184,31 @@ Wire-level details:
   unset `OTEL_EXPORTER_OTLP_ENDPOINT` (the SDK still installs a no-op
   exporter and never sees the network).
 
-**Frontend OTel.** The SPA also has a `WebTracerProvider` configured
-via [`web/src/otel.ts`](web/src/otel.ts), with `FetchInstrumentation`
-on so every typed-client call automatically becomes a client span and
+**Frontend OTel.** The SPA has a `WebTracerProvider` configured via
+[`web/src/otel.ts`](web/src/otel.ts), with `FetchInstrumentation` on
+so every typed-client call automatically becomes a client span and
 carries `traceparent` to the backend. The backend's otelhttp wrapper
 continues the trace under that parent — full browser → server →
 plugin visibility in the collector.
 
-To avoid browser CORS pain, the SPA POSTs spans to a same-origin
-`/v1/traces` path. In dev, Vite proxies `/v1/traces` to the cloud
-collector (configured by `VITE_OTEL_EXPORTER_OTLP_ENDPOINT` in
-`vite.config.ts`). In prod, your reverse proxy / CDN must do the
-same forwarding for the same path.
+Three more instrumentations layer on top, all emitting via the same
+trace pipeline:
+
+- **Web Vitals** ([`web/src/instrumentation/vitals.ts`](web/src/instrumentation/vitals.ts))
+  — LCP, INP, CLS, FCP, TTFB. Each becomes a span with attributes
+  `web_vital.{name,value,delta,rating,id,navigation_type}`.
+- **Browser errors** ([`web/src/instrumentation/errors.ts`](web/src/instrumentation/errors.ts))
+  — `window.error`, `unhandledrejection`, and `console.error` overrides
+  call `span.recordException()` and set the span status to `ERROR`.
+- **Vue framework errors** — `app.config.errorHandler` in
+  [`main.ts`](web/src/main.ts) records component-level failures with
+  the failing component name + lifecycle hook attached.
+
+Spans (traces, vitals, errors) all POST to a same-origin `/v1/traces`
+path. In dev, Vite proxies `/v1/traces` to the cloud collector
+(configured by `VITE_OTEL_EXPORTER_OTLP_ENDPOINT` in
+`vite.config.ts`). In prod, your reverse proxy / CDN must do the same
+forwarding. This avoids browser CORS hassles entirely.
 
 CORS already allows `traceparent` and `tracestate`, so split-origin
 deployments propagate context cleanly too.
