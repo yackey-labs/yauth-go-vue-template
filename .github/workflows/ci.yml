@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server:
+    name: Server (Go)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: yauth
+          POSTGRES_PASSWORD: yauth
+          POSTGRES_DB: yauth_app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U yauth -d yauth_app"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://yauth:yauth@127.0.0.1:5432/yauth_app?sslmode=disable
+      DISABLE_HIBP: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+          cache-dependency-path: server/go.sum
+
+      - name: go vet
+        run: go vet ./...
+        working-directory: server
+
+      - name: gofmt
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "::error::gofmt found unformatted files:"
+            echo "$out"
+            exit 1
+          fi
+        working-directory: server
+
+      - name: go build
+        run: go build -o /tmp/server .
+        working-directory: server
+
+      - name: go test
+        run: go test ./...
+        working-directory: server
+
+      - name: smoke — boot server, register + login + protected fetch
+        run: |
+          /tmp/server &
+          SERVER_PID=$!
+          trap "kill $SERVER_PID 2>/dev/null || true" EXIT
+
+          # Wait for /openapi.json to come up
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:3000/openapi.json -o /dev/null; then break; fi
+            sleep 0.5
+          done
+
+          # Register, login, hit /api/me with the cookie.
+          jar=$(mktemp)
+          curl -fsS -X POST http://127.0.0.1:3000/api/auth/register \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"smoke@example.com","password":"yauth-smoke!Aq7z"}'
+          echo
+          curl -fsS -c "$jar" -X POST http://127.0.0.1:3000/api/auth/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"smoke@example.com","password":"yauth-smoke!Aq7z"}' -o /dev/null
+          curl -fsS -b "$jar" http://127.0.0.1:3000/api/me
+
+  web:
+    name: Web (Vue)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+        working-directory: web
+
+      - name: Lint
+        run: pnpm lint
+        working-directory: web
+
+      - name: Typecheck
+        run: pnpm typecheck
+        working-directory: web
+
+      - name: Build
+        run: pnpm build
+        working-directory: web

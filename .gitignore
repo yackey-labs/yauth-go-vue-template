@@ -1,0 +1,23 @@
+# Local env
+.env
+.env.local
+*.local
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Go
+server/server
+server/coverage.out
+
+# Node / pnpm
+web/node_modules/
+web/dist/
+web/.vite/
+web/coverage/
+
+# Logs
+*.log

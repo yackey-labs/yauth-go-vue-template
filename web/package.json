@@ -1,0 +1,32 @@
+{
+  "name": "yauth-go-vue-template-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp run typecheck && vp build",
+    "preview": "vp preview",
+    "typecheck": "vue-tsc --noEmit",
+    "lint": "vp lint",
+    "lint:fix": "vp lint --fix && vp fmt --write",
+    "format": "vp fmt --write"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@yackey-labs/yauth-client": "^0.12.2",
+    "@yackey-labs/yauth-ui-vue": "^0.12.2",
+    "tailwindcss": "^4.0.0",
+    "vue": "^3.5.0",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.6",
+    "@vue/tsconfig": "^0.9.1",
+    "typescript": "~5.9.0",
+    "vite": "^8.0.10",
+    "vite-plus": "^0.1.20",
+    "vue-tsc": "^3.2.7"
+  }
+}
