@@ -25,13 +25,19 @@ import { resourceFromAttributes } from '@opentelemetry/resources'
 import { BatchSpanProcessor, WebTracerProvider } from '@opentelemetry/sdk-trace-web'
 import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions'
 
-const endpoint = import.meta.env.VITE_OTEL_EXPORTER_OTLP_ENDPOINT as
-  | string
-  | undefined
+// Endpoint + service name follow a "VITE_-prefixed wins, otherwise
+// fall back to the bare OTEL_* var" convention. `vite.config.ts`'s
+// envPrefix lets us read both. Default behavior: one OTEL_* var in
+// .env feeds backend AND frontend. Override per side by setting the
+// VITE_-prefixed counterpart.
+const endpoint =
+  (import.meta.env.VITE_OTEL_EXPORTER_OTLP_ENDPOINT as string | undefined) ??
+  (import.meta.env.OTEL_EXPORTER_OTLP_ENDPOINT as string | undefined)
 
 if (endpoint) {
   const serviceName =
     (import.meta.env.VITE_OTEL_SERVICE_NAME as string | undefined) ??
+    (import.meta.env.OTEL_SERVICE_NAME as string | undefined) ??
     'yauth-go-vue-template-web'
 
   const provider = new WebTracerProvider({

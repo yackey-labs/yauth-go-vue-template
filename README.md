@@ -174,12 +174,18 @@ Wire-level details:
 - **Transport** — OTLP/HTTP. The collectors at
   `otel-local.yackey.cloud` and `otel.yackey.cloud` accept HTTP at
   `/v1/traces` (the SDK appends the path; you set the base).
-- **Endpoint** — `OTEL_EXPORTER_OTLP_ENDPOINT` env var. Defaults in
-  `.env.example`:
+- **Endpoint** — `OTEL_EXPORTER_OTLP_ENDPOINT` drives backend AND
+  frontend by default. Defaults in `.env.example`:
   - dev: `https://otel-local.yackey.cloud`
-  - prod: set `https://otel.yackey.cloud` via your secret/env manager
-- **Service name** — `OTEL_SERVICE_NAME` (default
-  `yauth-go-vue-template` from `yauth.yaml`).
+  - prod: set `https://otel.yackey.cloud` via your secret/env manager.
+  - To send frontend spans to a *different* collector than the
+    backend, set `VITE_OTEL_EXPORTER_OTLP_ENDPOINT` — it overrides
+    just for the SPA bundle.
+- **Service name** — same convention. `OTEL_SERVICE_NAME` is the
+  shared default (yauth.yaml carries `yauth-go-vue-template`).
+  Override the SPA's name with `VITE_OTEL_SERVICE_NAME` when you want
+  backend and frontend to appear as separate services in your
+  collector.
 - **Disable** — set `telemetry.enabled: false` in `yauth.yaml` or just
   unset `OTEL_EXPORTER_OTLP_ENDPOINT` (the SDK still installs a no-op
   exporter and never sees the network).

@@ -189,6 +189,13 @@ Our local `internal/telemetry`:
 Set via `.env` in dev, secret manager in prod. CORS already allows
 `traceparent`/`tracestate` headers in `yauth.yaml`.
 
+**One pair of vars drives both halves of the stack.** `OTEL_EXPORTER_OTLP_ENDPOINT`
++ `OTEL_SERVICE_NAME` are read by the Go server directly and exposed
+to the SPA via Vite's `envPrefix: ['VITE_', 'OTEL_']`. The frontend
+checks the `VITE_OTEL_*` counterparts first and falls back to the
+`OTEL_*` originals — set the `VITE_*` variant only when you want the
+SPA to deviate (different collector, different service name).
+
 ### Frontend OTel
 
 [`web/src/otel.ts`](web/src/otel.ts) installs `WebTracerProvider` +
