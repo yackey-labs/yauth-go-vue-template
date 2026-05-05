@@ -211,10 +211,12 @@ trace pipeline:
   the failing component name + lifecycle hook attached.
 
 Spans (traces, vitals, errors) all POST to a same-origin `/v1/traces`
-path. In dev, Vite proxies `/v1/traces` to the cloud collector
-(configured by `VITE_OTEL_EXPORTER_OTLP_ENDPOINT` in
-`vite.config.ts`). In prod, your reverse proxy / CDN must do the same
-forwarding. This avoids browser CORS hassles entirely.
+path. In dev, Vite proxies `/v1/traces` to the cloud collector — the
+target follows the same precedence as everywhere else
+(`VITE_OTEL_EXPORTER_OTLP_ENDPOINT` if set, else
+`OTEL_EXPORTER_OTLP_ENDPOINT`, see `vite.config.ts`). In prod, your
+reverse proxy / CDN must do the same forwarding. This avoids browser
+CORS hassles entirely.
 
 CORS already allows `traceparent` and `tracestate`, so split-origin
 deployments propagate context cleanly too.
